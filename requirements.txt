@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+yfinance
+pandas
+numpy
+scipy
+httpx
+apscheduler
+python-dateutil

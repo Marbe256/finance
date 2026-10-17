@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance Chart</title>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e0e0e0; --muted: #888; --accent: #4f8ef7;
+    --green: #26a69a; --red: #ef5350; --yellow: #ffc107;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 13px; }
+  nav { display: flex; gap: 4px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); align-items: center; }
+  nav a { color: var(--muted); text-decoration: none; padding: 4px 12px; border-radius: 4px; }
+  nav a.active, nav a:hover { background: var(--accent); color: #fff; }
+  nav .title { font-weight: bold; color: var(--text); margin-right: 16px; }
+  #fx-bar { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .toolbar { display: flex; gap: 6px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border); align-items: center; flex-wrap: wrap; }
+  .toolbar input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; width: 120px; }
+  .toolbar select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 6px; border-radius: 4px; }
+  .btn { background: var(--border); border: none; color: var(--text); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .btn:hover { background: var(--accent); color: #fff; }
+  .btn.active { background: var(--accent); color: #fff; }
+  .btn.green { background: var(--green); color: #fff; }
+  .btn.red { background: var(--red); color: #fff; }
+  .period-btns .btn { padding: 3px 8px; }
+  #charts-wrap { display: flex; flex-direction: column; }
+  #main-chart { width: 100%; height: 420px; }
+  .sub-chart-pane { width: 100%; height: 120px; border-top: 1px solid var(--border); position: relative; }
+  .sub-chart-label { position: absolute; top: 4px; left: 8px; font-size: 10px; color: var(--muted); z-index: 10; pointer-events: none; }
+  #sim-panel { background: var(--surface); border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .panel-section { min-width: 200px; }
+  .panel-section h4 { color: var(--muted); font-size: 11px; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px; }
+  .form-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .form-row label { color: var(--muted); font-size: 11px; min-width: 40px; }
+  .form-row input, .form-row select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 3px 6px; border-radius: 4px; width: 90px; }
+  #portfolio-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  #portfolio-table th { color: var(--muted); border-bottom: 1px solid var(--border); padding: 3px 6px; text-align: left; }
+  #portfolio-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+  #order-log { font-size: 11px; max-height: 120px; overflow-y: auto; }
+  #order-log .log-row { padding: 2px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .agent-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .status-dot.paused { background: var(--yellow); }
+  .status-dot.stopped { background: var(--red); }
+  #indicator-checks { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #indicator-checks label { display: flex; gap: 3px; align-items: center; cursor: pointer; }
+  #ohlcv-tooltip { position: fixed; background: rgba(26,29,39,0.95); border: 1px solid var(--border); padding: 6px 10px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="title">📈 Finance</span>
+  <a href="/" class="active">チャート</a>
+  <a href="/dashboard">ダッシュボード</a>
+  <a href="/screen">スクリーニング</a>
+  <span id="fx-bar">読み込み中...</span>
+</nav>
+
+<div class="toolbar">
+  <input id="symbol-input" placeholder="AAPL / 7203.T / BTC-USD" value="AAPL">
+  <button class="btn" onclick="loadChart()">表示</button>
+  <div class="period-btns" style="display:flex;gap:3px">
+    <button class="btn" onclick="setPeriod('1mo')">1M</button>
+    <button class="btn active" onclick="setPeriod('3mo')">3M</button>
+    <button class="btn" onclick="setPeriod('6mo')">6M</button>
+    <button class="btn" onclick="setPeriod('1y')">1Y</button>
+    <button class="btn" onclick="setPeriod('2y')">2Y</button>
+  </div>
+  <select id="interval-select">
+    <option value="1d" selected>日足</option>
+    <option value="1wk">週足</option>
+    <option value="1h">1時間</option>
+    <option value="15m">15分</option>
+  </select>
+  <div id="indicator-checks">
+    <label><input type="checkbox" value="sma" checked onchange="loadChart()"> SMA</label>
+    <label><input type="checkbox" value="ema" onchange="loadChart()"> EMA</label>
+    <label><input type="checkbox" value="bbands" onchange="loadChart()"> BB</label>
+    <label><input type="checkbox" value="ichimoku" onchange="loadChart()"> 一目</label>
+    <label><input type="checkbox" value="rsi" checked onchange="loadChart(true)"> RSI</label>
+    <label><input type="checkbox" value="macd" onchange="loadChart(true)"> MACD</label>
+    <label><input type="checkbox" value="atr" onchange="loadChart(true)"> ATR</label>
+    <label><input type="checkbox" value="hv" onchange="loadChart(true)"> HV</label>
+    <label><input type="checkbox" value="volume" checked onchange="loadChart(true)"> 出来高</label>
+  </div>
+  <button class="btn" onclick="detectLines()" style="margin-left:auto">🔍 ライン検出</button>
+</div>
+
+<div id="charts-wrap">
+  <div id="main-chart"></div>
+  <div id="sub-charts-wrap"></div>
+</div>
+
+<div id="sim-panel">
+  <div class="panel-section">
+    <h4>エージェント <span class="agent-status"><span id="agent-dot" class="status-dot"></span><span id="agent-label">稼働中</span></span></h4>
+    <div style="display:flex;gap:6px">
+      <button class="btn" onclick="agentPause()">⏸ 停止</button>
+      <button class="btn" onclick="agentResume()">▶ 再開</button>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <h4>手動注文</h4>
+    <div class="form-row">
+      <label>銘柄</label><input id="order-symbol" placeholder="AAPL">
+      <label>数量</label><input id="order-qty" type="number" value="1" min="0.001" step="0.001">
+    </div>
+    <div class="form-row">
+      <label>種別</label>
+      <select id="order-type">
+        <option value="market">成行</option>
+        <option value="limit">指値</option>
+        <option value="stop">逆指値</option>
+      </select>
+      <input id="order-limit" type="number" placeholder="価格" style="display:none">
+    </div>
+    <div class="form-row">
+      <button class="btn green" onclick="placeOrder('buy')">買い</button>
+      <button class="btn red" onclick="placeOrder('sell')">売り</button>
+    </div>
+  </div>
+
+  <div class="panel-section" style="flex:1;min-width:300px">
+    <h4>ポートフォリオ</h4>
+    <table id="portfolio-table">
+      <thead><tr><th>銘柄</th><th>数量</th><th>平均</th><th>現在</th><th>損益</th></tr></thead>
+      <tbody id="portfolio-body"></tbody>
+    </table>
+    <div id="cash-display" style="margin-top:6px;color:var(--muted)">現金: ¥--</div>
+  </div>
+
+  <div class="panel-section" style="flex:1;min-width:220px">
+    <h4>注文履歴</h4>
+    <div id="order-log"></div>
+  </div>
+</div>
+
+<div id="ohlcv-tooltip"></div>
+
+<script>
+const API = '';
+let currentSymbol = 'AAPL';
+let currentPeriod = '3mo';
+let mainChart, candleSeries;
+let subCharts = []; // 複数サブチャートインスタンス
+let overlays = [];
+let chartLines = [];
+let lastCandles = null;
+let lastIndicators = null;
+const SUB_ONLY = new Set(['rsi', 'macd', 'atr', 'hv', 'volume']);
+
+// ── 状態保持ユーティリティ ──
+function saveState() {
+  try {
+    localStorage.setItem('fc_symbol', document.getElementById('symbol-input').value);
+    localStorage.setItem('fc_period', currentPeriod);
+    localStorage.setItem('fc_interval', document.getElementById('interval-select').value);
+    const checks = [...document.querySelectorAll('#indicator-checks input')].map(el => `${el.value}:${el.checked}`).join(',');
+    localStorage.setItem('fc_indicators', checks);
+  } catch(e) {}
+}
+function restoreState() {
+  try {
+    const sym = localStorage.getItem('fc_symbol');
+    if (sym) document.getElementById('symbol-input').value = sym;
+    const period = localStorage.getItem('fc_period');
+    if (period) {
+      currentPeriod = period;
+      document.querySelectorAll('.period-btns .btn').forEach(b => {
+        const map = {'1mo':'1M','3mo':'3M','6mo':'6M','1y':'1Y','2y':'2Y'};
+        b.classList.toggle('active', b.textContent.trim() === map[period]);
+      });
+    }
+    const interval = localStorage.getItem('fc_interval');
+    if (interval) document.getElementById('interval-select').value = interval;
+    const checks = localStorage.getItem('fc_indicators');
+    if (checks) {
+      const map = Object.fromEntries(checks.split(',').map(s => s.split(':')));
+      document.querySelectorAll('#indicator-checks input').forEach(el => {
+        if (el.value in map) el.checked = map[el.value] === 'true';
+      });
+    }
+  } catch(e) {}
+}
+
+function getIndicators() {
+  return [...document.querySelectorAll('#indicator-checks input:checked')]
+    .map(el => el.value).join(',');
+}
+
+async function loadChart(subOnly = false) {
+  const symbol = document.getElementById('symbol-input').value.trim().toUpperCase();
+  const interval = document.getElementById('interval-select').value;
+  if (!symbol) return;
+  currentSymbol = symbol;
+  saveState();
+
+  // サブチャートのみの更新: キャッシュがあり必要なデータが揃っていればメイン再描画をスキップ
+  if (subOnly && lastCandles && lastIndicators) {
+    const needsLoad = ['rsi','macd','atr','hv','volume'].some(k => {
+      const el = document.querySelector(`#indicator-checks input[value="${k}"]`);
+      return el?.checked && !lastIndicators[k];
+    });
+    if (!needsLoad) {
+      renderSubChart(lastCandles, lastIndicators);
+      return;
+    }
+  }
+
+  const indicators = getIndicators();
+  const res = await fetch(`${API}/api/chart?symbol=${symbol}&period=${currentPeriod}&interval=${interval}&indicators=${indicators}`);
+  if (!res.ok) { alert('データ取得失敗: ' + symbol); return; }
+  const data = await res.json();
+
+  lastCandles = data.candles;
+  lastIndicators = data.indicators;
+
+  initCharts();
+  renderCandles(data.candles);
+  renderSubChart(data.candles, data.indicators);
+  renderIndicators(data.indicators);
+  loadPortfolio();
+}
+
+function initCharts() {
+  document.getElementById('main-chart').innerHTML = '';
+  document.getElementById('sub-charts-wrap').innerHTML = '';
+  subCharts = [];
+  overlays = [];
+
+  mainChart = LightweightCharts.createChart(document.getElementById('main-chart'), {
+    layout: { background: { color: '#0f1117' }, textColor: '#e0e0e0' },
+    grid: { vertLines: { color: '#1e2130' }, horzLines: { color: '#1e2130' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#2a2d3e' },
+    timeScale: { borderColor: '#2a2d3e', timeVisible: true },
+    width: document.getElementById('main-chart').clientWidth,
+    height: 420,
+  });
+
+  candleSeries = mainChart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+}
+
+function _createSubPane(label) {
+  const wrap = document.getElementById('sub-charts-wrap');
+  const pane = document.createElement('div');
+  pane.className = 'sub-chart-pane';
+  const lbl = document.createElement('div');
+  lbl.className = 'sub-chart-label';
+  lbl.textContent = label;
+  pane.appendChild(lbl);
+  wrap.appendChild(pane);
+  const chart = LightweightCharts.createChart(pane, {
+    layout: { background: { color: '#0f1117' }, textColor: '#888' },
+    grid: { vertLines: { color: '#1e2130' }, horzLines: { color: '#1e2130' } },
+    rightPriceScale: { borderColor: '#2a2d3e' },
+    timeScale: { borderColor: '#2a2d3e', timeVisible: false },
+    width: wrap.clientWidth,
+    height: 120,
+  });
+  // 時間軸スクロール同期（ループ防止フラグ）
+  let syncing = false;
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (syncing || !range) return;
+    syncing = true;
+    chart.timeScale().setVisibleLogicalRange(range);
+    syncing = false;
+  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (syncing || !range) return;
+    syncing = true;
+    mainChart.timeScale().setVisibleLogicalRange(range);
+    subCharts.forEach(c => { if (c !== chart) c.timeScale().setVisibleLogicalRange(range); });
+    syncing = false;
+  });
+
+  subCharts.push(chart);
+  return chart;
+}
+
+// クロスヘア同期をセットアップ（全サブペイン生成後に呼ぶ）
+function _setupCrosshairSync(subSeriesMap) {
+  // subSeriesMap: Map<chart, series>
+
+  mainChart.subscribeCrosshairMove(param => {
+    subSeriesMap.forEach((series, chart) => {
+      if (!param.time) { chart.clearCrosshairPosition(); return; }
+      chart.setCrosshairPosition(0, param.time, series);
+    });
+  });
+
+  subSeriesMap.forEach((series, chart) => {
+    chart.subscribeCrosshairMove(param => {
+      if (!param.time) {
+        mainChart.clearCrosshairPosition();
+        subSeriesMap.forEach((s, c) => { if (c !== chart) c.clearCrosshairPosition(); });
+        return;
+      }
+      mainChart.setCrosshairPosition(0, param.time, candleSeries);
+      subSeriesMap.forEach((s, c) => {
+        if (c !== chart) c.setCrosshairPosition(0, param.time, s);
+      });
+    });
+  });
+}
+
+function toTime(dateStr) {
+  return Math.floor(new Date(dateStr).getTime() / 1000);
+}
+
+function renderCandles(candles) {
+  candleSeries.setData(candles.map(c => ({
+    time: toTime(c.date), open: c.open, high: c.high, low: c.low, close: c.close,
+  })));
+  // データを中央に表示
+  const d = candleSeries.data();
+  if (d.length > 0) {
+    // まずfitContentで全データを収める
+    mainChart.timeScale().fitContent();
+    // 現在のbarSpacingを取得してチャート幅から余白を計算
+    requestAnimationFrame(() => {
+      const ts = mainChart.timeScale();
+      const currentRange = ts.getVisibleLogicalRange();
+      if (!currentRange) return;
+      const visibleBars = currentRange.to - currentRange.from;
+      const margin = Math.max(0, (visibleBars - d.length) / 2);
+      ts.setVisibleLogicalRange({ from: -margin, to: d.length - 1 + margin });
+    });
+  }
+}
+
+const COLORS = { sma25: '#f7c948', sma75: '#e97150', ema12: '#7ec8e3', ema26: '#5b8dd9' };
+
+function renderIndicators(ind) {
+  overlays.forEach(s => mainChart.removeSeries(s));
+  overlays = [];
+
+  if (ind.sma) {
+    ind.sma.forEach((item, i) => {
+      const s = mainChart.addLineSeries({ color: i === 0 ? COLORS.sma25 : COLORS.sma75, lineWidth: 1, priceLineVisible: false });
+      s.setData(toLineData(item.values, ind));
+      overlays.push(s);
+    });
+  }
+  if (ind.ema) {
+    ind.ema.forEach((item, i) => {
+      const s = mainChart.addLineSeries({ color: i === 0 ? COLORS.ema12 : COLORS.ema26, lineWidth: 1, lineStyle: 1, priceLineVisible: false });
+      s.setData(toLineData(item.values, ind));
+      overlays.push(s);
+    });
+  }
+  if (ind.bbands) {
+    ['upper','middle','lower'].forEach((k, i) => {
+      const s = mainChart.addLineSeries({ color: '#9c88ff', lineWidth: 1, lineStyle: i === 1 ? 2 : 0, priceLineVisible: false });
+      s.setData(toLineData(ind.bbands[k], ind));
+      overlays.push(s);
+    });
+  }
+  if (ind.ichimoku) {
+    const ich = ind.ichimoku;
+    const dates = getDates(ind);
+
+    // 転換線・基準線・遅行線（細線）
+    [['tenkan','#f48fb1'],['kijun','#4dd0e1'],['chikou','#ce93d8']].forEach(([k,color]) => {
+      const s = mainChart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false });
+      s.setData(toLineData(ich[k], ind));
+      overlays.push(s);
+    });
+
+    // 雲: 先行スパンA・Bを太線+半透明で描画
+    // A > B = 上昇雲（緑）、A < B = 下降雲（赤）を区間ごとに色分け
+    const sA = ich.senkou_a;
+    const sB = ich.senkou_b;
+
+    // 区間ごとにA・Bそれぞれ色付きセグメントに分割して描画
+    let segA = [], segB = [];
+    let prevBullish = null;
+
+    const flushSeg = (bullish) => {
+      const colorA = bullish ? '#26a69a99' : '#ef535099';
+      const colorB = bullish ? '#26a69a55' : '#ef535055';
+      if (segA.length >= 2) {
+        const sa = mainChart.addLineSeries({ color: colorA, lineWidth: 8, priceLineVisible: false, lastValueVisible: false });
+        sa.setData(segA);
+        overlays.push(sa);
+      }
+      if (segB.length >= 2) {
+        const sb = mainChart.addLineSeries({ color: colorB, lineWidth: 8, priceLineVisible: false, lastValueVisible: false });
+        sb.setData(segB);
+        overlays.push(sb);
+      }
+      segA = []; segB = [];
+    };
+
+    sA.forEach((a, i) => {
+      const b = sB[i];
+      if (a === null || b === null) return;
+      const bullish = a >= b;
+      if (prevBullish !== null && bullish !== prevBullish) {
+        // 色が変わる境界点は両セグメントに含める
+        segA.push({ time: toTime(dates[i]), value: a });
+        segB.push({ time: toTime(dates[i]), value: b });
+        flushSeg(prevBullish);
+      }
+      segA.push({ time: toTime(dates[i]), value: a });
+      segB.push({ time: toTime(dates[i]), value: b });
+      prevBullish = bullish;
+    });
+    if (segA.length >= 2) flushSeg(prevBullish);
+  }
+}
+
+function toLineData(values, ind) {
+  const dates = getDates(ind);
+  return values.map((v, i) => v !== null ? { time: toTime(dates[i]), value: v } : null).filter(Boolean);
+}
+
+function getDates(ind) {
+  if (candleSeries) {
+    const d = candleSeries.data();
+    return d.map(p => new Date(p.time * 1000).toISOString().slice(0, 10));
+  }
+  return [];
+}
+
+// サブチャート描画: チェック済み項目ごとに1ペインずつ縦に並べる
+function renderSubChart(candles, ind) {
+  document.getElementById('sub-charts-wrap').innerHTML = '';
+  subCharts = [];
+
+  const checked = el => document.querySelector(`#indicator-checks input[value="${el}"]`)?.checked;
+  const dates = candles.map(c => c.date);
+  const toD = (v, i) => v !== null ? { time: toTime(dates[i]), value: v } : null;
+  // null除去せず範囲を維持するためにnull値をスキップしつつ先頭・末尾の時刻は必ず含める
+  const toDKeepRange = (values) => {
+    const result = values.map(toD).filter(Boolean);
+    // データがある場合、最初の日付と最後の日付を含める（すでに含まれていれば何もしない）
+    if (result.length > 0 && dates.length > 0) {
+      const t0 = toTime(dates[0]);
+      if (result[0].time > t0) result.unshift({ time: t0, value: result[0].value });
+    }
+    return result;
+  };
+  const subSeriesMap = new Map(); // クロスヘア同期用
+
+  if (checked('volume') && ind.volume) {
+    const chart = _createSubPane('出来高');
+    const s = chart.addHistogramSeries({ color: '#4f8ef755', priceFormat: { type: 'volume' } });
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0 } });
+    s.setData(candles.map((c, i) => ({
+      time: toTime(c.date), value: ind.volume[i] ?? 0,
+      color: c.close >= c.open ? '#26a69a66' : '#ef535066',
+    })));
+    subSeriesMap.set(chart, s);
+  }
+
+  if (checked('rsi') && ind.rsi) {
+    const chart = _createSubPane('RSI(14)');
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+    const rsiValues = ind.rsi.values ?? ind.rsi;
+    const s = chart.addLineSeries({ color: '#ce93d8', lineWidth: 1, priceLineVisible: false });
+    s.setData(toDKeepRange(rsiValues));
+    const t0 = toTime(dates[0]), t1 = toTime(dates[dates.length - 1]);
+    const ob = chart.addLineSeries({ color: '#ef535066', lineWidth: 1, lineStyle: 2, priceLineVisible: false });
+    ob.setData([{ time: t0, value: 70 }, { time: t1, value: 70 }]);
+    const os = chart.addLineSeries({ color: '#26a69a66', lineWidth: 1, lineStyle: 2, priceLineVisible: false });
+    os.setData([{ time: t0, value: 30 }, { time: t1, value: 30 }]);
+    subSeriesMap.set(chart, s);
+  }
+
+  if (checked('macd') && ind.macd) {
+    const chart = _createSubPane('MACD(12,26,9)');
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+    const ml = chart.addLineSeries({ color: '#4f8ef7', lineWidth: 1, priceLineVisible: false });
+    ml.setData(ind.macd.macd.map(toD).filter(Boolean));
+    const sl = chart.addLineSeries({ color: '#ef5350', lineWidth: 1, priceLineVisible: false });
+    sl.setData(ind.macd.signal.map(toD).filter(Boolean));
+    const hs = chart.addHistogramSeries({ priceLineVisible: false });
+    hs.setData(ind.macd.histogram.map((v, i) => v !== null ? { time: toTime(dates[i]), value: v, color: v >= 0 ? '#26a69a88' : '#ef535088' } : null).filter(Boolean));
+    subSeriesMap.set(chart, ml);
+  }
+
+  if (checked('atr') && ind.atr) {
+    const chart = _createSubPane('ATR(14)');
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+    const atrValues = ind.atr.values ?? ind.atr;
+    const s = chart.addLineSeries({ color: '#ff9800', lineWidth: 1, priceLineVisible: false });
+    s.setData(toDKeepRange(atrValues));
+    subSeriesMap.set(chart, s);
+  }
+
+  if (checked('hv') && ind.hv) {
+    const chart = _createSubPane('HV(20)%');
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+    const hvValues = ind.hv.values ?? ind.hv;
+    const s = chart.addLineSeries({ color: '#ffc107', lineWidth: 1, priceLineVisible: false });
+    s.setData(toDKeepRange(hvValues));
+    subSeriesMap.set(chart, s);
+  }
+
+  // 時間軸をメインに合わせる
+  const range = mainChart.timeScale().getVisibleLogicalRange();
+  if (range) subCharts.forEach(c => c.timeScale().setVisibleLogicalRange(range));
+
+  // クロスヘア同期セットアップ
+  if (subSeriesMap.size > 0) _setupCrosshairSync(subSeriesMap);
+}
+
+function setPeriod(p) {
+  currentPeriod = p;
+  document.querySelectorAll('.period-btns .btn').forEach(b => b.classList.toggle('active', b.textContent.trim().toLowerCase().startsWith(p.replace('mo','m').replace('y','y'))));
+  saveState();
+  loadChart();
+}
+
+async function detectLines() {
+  chartLines.forEach(l => { try { mainChart.removeSeries(l); } catch(e){} });
+  chartLines = [];
+  const res = await fetch(`${API}/api/lines/detect?symbol=${currentSymbol}&period=${currentPeriod}&max_lines=10`);
+  if (!res.ok) return;
+  const data = await res.json();
+  const d = candleSeries.data();
+  data.lines.forEach(line => {
+    if (line.type === 'horizontal') {
+      // 強=実線、弱=点線
+      const color = line.role === 'resistance' ? '#ef5350' : '#26a69a';
+      const lineStyle = line.strength === 'strong' ? 0 : 2;
+      const lineWidth = line.strength === 'strong' ? 2 : 1;
+      const s = mainChart.addLineSeries({ color, lineWidth, lineStyle, priceLineVisible: false });
+      if (d.length >= 2) {
+        s.setData([{ time: d[0].time, value: line.price }, { time: d[d.length-1].time, value: line.price }]);
+        chartLines.push(s);
+      }
+    } else if ((line.type === 'trend' || line.type === 'channel') && line.point1 && line.point2) {
+      // trend: 赤/緑 実線、channel: オレンジ/水色 点線
+      let color;
+      if (line.type === 'channel') {
+        color = line.role === 'channel_upper' ? '#ff9800' : '#29b6f6';
+      } else {
+        color = line.role === 'resistance' ? '#ef5350' : '#26a69a';
+      }
+      const lineStyle = line.type === 'channel' ? 2 : 0;
+      const s = mainChart.addLineSeries({ color, lineWidth: 1, lineStyle, priceLineVisible: false });
+      const pts = [
+        { time: toTime(line.point1.date), value: line.point1.price },
+        { time: toTime(line.point2.date), value: line.point2.price },
+      ];
+      if (line.point_extended) {
+        pts.push({ time: toTime(line.point_extended.date), value: line.point_extended.price });
+      }
+      s.setData(pts);
+      chartLines.push(s);
+    } else if (line.type === 'fibonacci') {
+      // フィボナッチ: 紫、61.8%=実線 38.2%=点線
+      const lineStyle = line.role === 'fib_618' ? 0 : 2;
+      const s = mainChart.addLineSeries({ color: '#ab47bc', lineWidth: 1, lineStyle, priceLineVisible: false });
+      if (d.length >= 2) {
+        s.setData([{ time: d[0].time, value: line.price }, { time: d[d.length-1].time, value: line.price }]);
+        chartLines.push(s);
+      }
+    }
+  });
+}
+
+async function loadPortfolio() {
+  const res = await fetch(`${API}/api/sim/portfolio`);
+  if (!res.ok) return;
+  const data = await res.json();
+  const tbody = document.getElementById('portfolio-body');
+  tbody.innerHTML = '';
+  data.positions.forEach(pos => {
+    const pnl = pos.unrealized_pnl;
+    const cls = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+    tbody.innerHTML += `<tr>
+      <td>${pos.symbol}</td><td>${pos.quantity}</td>
+      <td>${pos.avg_price.toLocaleString()}</td><td>${pos.current_price.toLocaleString()}</td>
+      <td class="${cls}">${pnl >= 0 ? '+' : ''}${pnl.toLocaleString()}</td>
+    </tr>`;
+  });
+  document.getElementById('cash-display').textContent = `現金: ¥${data.cash.toLocaleString()}  総資産: ¥${data.total_value.toLocaleString()}`;
+}
+
+async function placeOrder(side) {
+  const symbol = document.getElementById('order-symbol').value.trim().toUpperCase() || currentSymbol;
+  const quantity = parseFloat(document.getElementById('order-qty').value);
+  const order_type = document.getElementById('order-type').value;
+  const body = { symbol, side, quantity, order_type, source: 'manual' };
+  const res = await fetch(`${API}/api/sim/order`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (data.error) { alert('注文エラー: ' + JSON.stringify(data)); return; }
+  const log = document.getElementById('order-log');
+  const div = document.createElement('div');
+  div.className = 'log-row';
+  div.textContent = `${data.filled_at?.slice(0,19)} ${side.toUpperCase()} ${symbol} x${quantity} @ ${data.filled_price}`;
+  log.prepend(div);
+  loadPortfolio();
+}
+
+async function agentPause() {
+  await fetch(`${API}/api/sim/agent/pause`, { method: 'POST' });
+  updateAgentStatus();
+}
+async function agentResume() {
+  await fetch(`${API}/api/sim/agent/resume`, { method: 'POST' });
+  updateAgentStatus();
+}
+async function updateAgentStatus() {
+  const res = await fetch(`${API}/api/sim/agent/status`);
+  const data = await res.json();
+  const dot = document.getElementById('agent-dot');
+  const label = document.getElementById('agent-label');
+  dot.className = 'status-dot' + (data.status === 'paused' ? ' paused' : data.status === 'stopped_by_risk' ? ' stopped' : '');
+  label.textContent = data.status === 'running' ? '稼働中' : data.status === 'paused' ? '停止中' : 'リスク停止';
+}
+
+async function loadFxBar() {
+  try {
+    const res = await fetch(`${API}/api/portfolio/summary`);
+    const data = await res.json();
+    const rates = data.fx_rates || {};
+    document.getElementById('fx-bar').textContent = Object.entries(rates).map(([k,v]) => `${k}: ${v.toLocaleString()}`).join('  ');
+  } catch(e) {}
+}
+
+document.getElementById('order-type').addEventListener('change', e => {
+  document.getElementById('order-limit').style.display = e.target.value !== 'market' ? '' : 'none';
+});
+
+restoreState();
+const _urlSymbol = new URLSearchParams(location.search).get('symbol');
+if (_urlSymbol) {
+  document.getElementById('symbol-input').value = _urlSymbol.toUpperCase();
+}
+loadChart();
+loadFxBar();
+updateAgentStatus();
+setInterval(loadPortfolio, 30000);
+setInterval(loadFxBar, 60000);
+</script>
+</body>
+</html>
